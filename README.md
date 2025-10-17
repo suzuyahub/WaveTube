@@ -1,7 +1,9 @@
 # WaveTube
 
 WavTube.exe - 説明書
+
 制作者 : suzuya
+
 バージョン情報 : 1.3 (最終更新)
 
 使用ツール : python
