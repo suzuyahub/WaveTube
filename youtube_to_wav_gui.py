@@ -12,6 +12,53 @@ import subprocess
 
 from audio_analyzer import analyze_audio_full 
 
+# --- 設定保存用の処理 (OS標準の設定フォルダへ保存) ---
+def get_config_path():
+    """OSごとの設定保存用フォルダのパスを取得し、必要ならディレクトリを作成する"""
+    app_name = "WavTube_mp3_plus"
+    
+    if sys.platform == "win32":
+        # Windows: C:/Users/ユーザー/AppData/Local/WavTube_mp3_plus
+        base_dir = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
+    else:
+        # macOS/Linux: ~/.config/WavTube_mp3_plus
+        base_dir = os.path.expanduser("~/.config")
+        
+    config_dir = os.path.join(base_dir, app_name)
+    
+    try:
+        if not os.path.exists(config_dir):
+            os.makedirs(config_dir)
+    except Exception:
+        # フォルダ作成に失敗した場合はカレントディレクトリをフォールバック
+        return "config.txt"
+        
+    return os.path.join(config_dir, "config.txt")
+
+def load_config():
+    """設定ファイルから保存されたパスを読み込む"""
+    config_file = get_config_path()
+    if os.path.exists(config_file):
+        try:
+            with open(config_file, "r", encoding="utf-8") as f:
+                path = f.read().strip()
+                # パスが現在も存在するかチェック
+                if os.path.exists(path):
+                    return path
+        except Exception:
+            pass
+    return None
+
+def save_config(path):
+    """パスを設定ファイルに書き込む"""
+    try:
+        config_file = get_config_path()
+        with open(config_file, "w", encoding="utf-8") as f:
+            f.write(path)
+    except Exception as e:
+        print(f"設定の保存に失敗しました: {e}")
+
+# --- 既存の処理 ---
 CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 
 def sanitize_filename(name):
@@ -33,10 +80,19 @@ output_format_var = None
 
 def set_initial_download_directory():
     global download_directory
-    default_download_path = os.path.expanduser('~/Downloads')
-    if not os.path.exists(default_download_path):
-        default_download_path = os.path.expanduser('~')
-    download_directory = default_download_path
+    
+    # 保存された設定を読み込む
+    saved_path = load_config()
+    
+    if saved_path:
+        download_directory = saved_path
+    else:
+        # 設定がない場合はデフォルトのダウンロードフォルダ
+        default_download_path = os.path.expanduser('~/Downloads')
+        if not os.path.exists(default_download_path):
+            default_download_path = os.path.expanduser('~')
+        download_directory = default_download_path
+    
     if download_dir_label:
         download_dir_label.config(text=f"保存先: {download_directory}")
 
@@ -50,6 +106,8 @@ def select_download_directory():
     if new_directory:
         download_directory = new_directory
         download_dir_label.config(text=f"保存先: {download_directory}")
+        # 変更されたら即座に保存
+        save_config(download_directory)
 
 def progress_hook(d):
     if d['status'] == 'downloading':
@@ -122,14 +180,12 @@ def download_audio(url):
             if output_format == "WAV":
                 shutil.copy(wav_file_temp, final_output_path)
             elif output_format == "MP3":
-                
                 status_label.config(text=f"最終エンコード ({output_format}) 中... (FFmpeg)")
-
                 try:
                     subprocess.run([
                         ffmpeg_path,
                         '-i', wav_file_temp,
-                        '-b:a', '320k', # 320kbps
+                        '-b:a', '320k', 
                         '-y',
                         final_output_path
                     ], 
@@ -160,10 +216,12 @@ def start_download():
     status_label.config(text="変換中...")
     progress_bar['value'] = 0
     
+    # ダウンロード開始時にも現在のディレクトリ設定を念のため保存
+    save_config(download_directory)
+    
     threading.Thread(target=download_audio, args=(url,), daemon=True).start()
 
 def paste_url():
-    """クリップボードのテキストをURL入力欄に貼り付ける"""
     try:
         clipboard_content = root.clipboard_get()
         url_entry.delete(0, tk.END)
@@ -172,9 +230,9 @@ def paste_url():
         messagebox.showwarning("エラー", "クリップボードにテキストがありません。")
 
 def open_instagram_link(event):
-    """Instagramのリンクをブラウザで開く"""
     webbrowser.open_new("https://instagram.com/suzuya_ins")
 
+# --- UIメイン ---
 root = tk.Tk()
 root.title("WavTube mp3+")
 root.geometry("550x380")
@@ -250,6 +308,7 @@ instagram_link_label.bind("<Button-1>", open_instagram_link)
 
 ttk.Label(contact_frame, text=" まで").pack(side=tk.LEFT)
 
+# 起動時に保存されたパスを復元
 set_initial_download_directory()
 
 root.mainloop()
